@@ -1,0 +1,147 @@
+<svg viewBox="0 0 800 1100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Definiciones -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357ABD;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D68910;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#27AE60;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E8449;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#E74C3C;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C0392B;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#2C3E50" />
+    </marker>
+  </defs>
+
+  <!-- Título -->
+  <text x="400" y="30" font-family="Arial, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" fill="#2C3E50">
+    Sistema de Reconocimiento Facial
+  </text>
+
+  <!-- Paso 1: Captura de Video -->
+  <rect x="250" y="60" width="300" height="70" rx="10" fill="url(#grad1)" filter="url(#shadow)"/>
+  <text x="400" y="90" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Captura de Video
+  </text>
+  <text x="400" y="110" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="white">
+    (Webcam / Cámara IP)
+  </text>
+
+  <!-- Flecha 1 -->
+  <line x1="400" y1="130" x2="400" y2="170" stroke="#2C3E50" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Paso 2: Detección de Rostros -->
+  <rect x="250" y="170" width="300" height="70" rx="10" fill="url(#grad1)" filter="url(#shadow)"/>
+  <text x="400" y="200" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Detección de Rostros
+  </text>
+  <text x="400" y="220" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="white">
+    (SCRFD)
+  </text>
+
+  <!-- Flecha 2 -->
+  <line x1="400" y1="240" x2="400" y2="280" stroke="#2C3E50" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Paso 3: Evaluación de Calidad (Advertencia) -->
+  <rect x="200" y="280" width="400" height="90" rx="10" fill="url(#grad2)" filter="url(#shadow)"/>
+  <text x="400" y="310" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Evaluación de Calidad (QualityCNN)
+  </text>
+  <text x="400" y="335" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="white">
+    *Advierte pero NO detiene el proceso*
+  </text>
+  <rect x="210" y="345" width="380" height="20" rx="5" fill="rgba(255,255,255,0.3)"/>
+  <text x="400" y="359" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="white">
+    Continúa independientemente de la calidad detectada
+  </text>
+
+  <!-- Flecha 3 -->
+  <line x1="400" y1="370" x2="400" y2="410" stroke="#2C3E50" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Paso 4: Embedding Facial -->
+  <rect x="250" y="410" width="300" height="70" rx="10" fill="url(#grad1)" filter="url(#shadow)"/>
+  <text x="400" y="440" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Embedding Facial
+  </text>
+  <text x="400" y="460" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="white">
+    (ArcFace)
+  </text>
+
+  <!-- Flecha 4 -->
+  <line x1="400" y1="480" x2="400" y2="520" stroke="#2C3E50" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Paso 5: Comparación -->
+  <rect x="200" y="520" width="400" height="70" rx="10" fill="url(#grad1)" filter="url(#shadow)"/>
+  <text x="400" y="545" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+    Comparación con Base de
+  </text>
+  <text x="400" y="565" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+    Personas Desaparecidas
+  </text>
+
+  <!-- Flecha 5 -->
+  <line x1="400" y1="590" x2="400" y2="630" stroke="#2C3E50" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Paso 6: Decisión (Rombo) -->
+  <path d="M 400 630 L 520 700 L 400 770 L 280 700 Z" fill="#8E44AD" filter="url(#shadow)"/>
+  <text x="400" y="695" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    ¿Coincidencia?
+  </text>
+
+  <!-- Flecha SÍ (izquierda) -->
+  <line x1="280" y1="700" x2="150" y2="700" stroke="#27AE60" stroke-width="3" marker-end="url(#arrowhead)"/>
+  <text x="215" y="690" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#27AE60">
+    SÍ
+  </text>
+  <line x1="150" y1="700" x2="150" y2="830" stroke="#27AE60" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Resultado SÍ: Generar Alerta -->
+  <rect x="30" y="830" width="240" height="100" rx="10" fill="url(#grad3)" filter="url(#shadow)"/>
+  <text x="150" y="860" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+    Generar Alerta
+  </text>
+  <text x="150" y="885" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">
+    (con advertencia si
+  </text>
+  <text x="150" y="905" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">
+    calidad baja)
+  </text>
+
+  <!-- Flecha NO (derecha) -->
+  <line x1="520" y1="700" x2="650" y2="700" stroke="#E74C3C" stroke-width="3" marker-end="url(#arrowhead)"/>
+  <text x="570" y="690" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#E74C3C">
+    NO
+  </text>
+  <line x1="650" y1="700" x2="650" y2="830" stroke="#E74C3C" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Resultado NO: Monitoreo Continuo -->
+  <rect x="530" y="830" width="240" height="100" rx="10" fill="url(#grad4)" filter="url(#shadow)"/>
+  <text x="650" y="870" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+    Monitoreo Continuo
+  </text>
+  <text x="650" y="895" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">
+    Siguiente captura
+  </text>
+
+  <!-- Iconos decorativos -->
+  <circle cx="400" cy="95" r="5" fill="white" opacity="0.5"/>
+  <circle cx="400" cy="205" r="5" fill="white" opacity="0.5"/>
+  <circle cx="400" cy="445" r="5" fill="white" opacity="0.5"/>
+  
+  <!-- Nota al pie -->
+  <text x="400" y="1050" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#7F8C8D" font-style="italic">
+    Sistema de vigilancia para localización de personas desaparecidas
+  </text>
+</svg>

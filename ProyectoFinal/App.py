@@ -5,6 +5,9 @@ from pathlib import Path
 from datetime import datetime
 import csv
 import subprocess 
+from insightface.app import FaceAnalysis
+import torch
+from quality_cnn import QualityCNN, preprocess_face
 
 import cv2
 import numpy as np
@@ -24,8 +27,107 @@ from utils.train import build_embeddings_db
 from utils.recognize import recognize_and_annotate, cosine_distance
 from utils.insight_model import get_insight_app
 
+# ================== MODELO CNN DE CALIDAD ==================
 
-# ---------- Utilidades propias de la app ----------
+QUALITY_THRESHOLD_DEFAULT = 0.7  # umbral por defecto para la calidad
+
+quality_model = QualityCNN()
+try:
+    state_dict = torch.load("quality_cnn.pt", map_location="cpu")
+    quality_model.load_state_dict(state_dict)
+    print("[OK] Modelo QualityCNN cargado correctamente.")
+except FileNotFoundError:
+    print("[!] quality_cnn.pt no encontrado. La CNN usará pesos sin entrenar (solo demo).")
+
+quality_model.eval()
+
+
+def is_good_quality(face_img, model=quality_model, threshold=QUALITY_THRESHOLD_DEFAULT):
+    """
+    Evalúa la calidad de un recorte de rostro usando la CNN.
+    - face_img: recorte BGR (como viene de OpenCV)
+    - threshold: umbral de probabilidad [0..1]
+    Devuelve: (es_buena_calidad: bool, probabilidad: float)
+    """
+    tensor = preprocess_face(face_img)  # [1, 1, 112, 112]
+    with torch.no_grad():
+        prob = model(tensor).item()
+    return prob >= threshold, prob
+
+
+# ================== ESTILOS GLOBALES ==================
+
+def set_custom_style():
+    """
+    Estilos básicos para un tema oscuro sencillo y profesional.
+    """
+    st.markdown("""
+    <style>
+        .main {
+            background-color: #020617;
+        }
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
+            max-width: 1200px;
+        }
+        h1, h2, h3, h4 {
+            color: #e5e7eb;
+        }
+        p, label, span, .stMarkdown {
+            color: #d1d5db;
+        }
+        .fg-card {
+            background: #020617;
+            border-radius: 0.9rem;
+            border: 1px solid #1f2937;
+            padding: 1rem 1.2rem;
+            margin-bottom: 0.8rem;
+        }
+        .fg-metric-card {
+            background: #020617;
+            border-radius: 0.9rem;
+            border: 1px solid #1f2937;
+            padding: 0.9rem 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .fg-badge-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+            border-radius: 999px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .fg-badge-warn {
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+            border-radius: 999px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+        button[role="tab"] {
+            padding-top: 0.4rem !important;
+            padding-bottom: 0.4rem !important;
+        }
+        .dataframe table {
+            font-size: 0.85rem;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #020617;
+            border-right: 1px solid #1f2937;
+        }
+        .stButton > button {
+            border-radius: 0.5rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ================== UTILIDADES DE ALERTA ==================
 
 def log_alert(person_name: str, distance: float):
     """
@@ -45,10 +147,31 @@ def log_alert(person_name: str, distance: float):
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(line)
 
+def log_low_quality_detection(q_prob: float, bbox):
+    """
+    Registra en data/low_quality_faces.csv los casos donde la CNN
+    detectó rostros de baja calidad (no confiables).
+    """
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    log_path = data_dir / "low_quality_faces.csv"
+
+    now = datetime.now().isoformat(timespec="seconds")
+
+    if not log_path.exists():
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("timestamp,q_prob,x1,y1,x2,y2\n")
+
+    x1, y1, x2, y2 = bbox
+    line = f"{now},{q_prob:.4f},{x1},{y1},{x2},{y2}\n"
+
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(line)
+
+
 def play_alert_sound():
     """
-    Reproduce el sonido de alerta desde assets/alert.wav usando aplay.
-    No bloquea la ejecución del programa.
+    Reproduce el sonido de alerta desde assets/alert.wav usando aplay (no bloqueante).
     """
     sound_path = Path("assets/alert.wav")
     if sound_path.exists():
@@ -59,21 +182,28 @@ def play_alert_sound():
         )
     else:
         print("[!] No se encontró assets/alert.wav, no se reproducirá sonido.")
-# ---------- Páginas / Tabs ----------
+
+
+# ================== PÁGINAS / TABS ==================
 
 def page_register():
-    st.subheader("📸 Registrar persona buscada")
+    st.markdown("### 📸 Registrar persona buscada")
+    st.caption(
+        "Captura o sube imágenes de personas reportadas como buscadas para "
+        "alimentar la base de datos del sistema."
+    )
 
     with st.container():
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([1.2, 1])
         with col1:
+            st.markdown('<div class="fg-card">', unsafe_allow_html=True)
             person_name = st.text_input(
-                "Nombre de la persona buscada",
-                help="Este nombre se usará como etiqueta en la base de datos.",
+                "Nombre completo de la persona",
+                help="Este nombre se usará como etiqueta en el sistema.",
                 key="register_name",
             )
-            st.write("Toma una o varias fotos de la persona:")
 
+            st.markdown("**Captura una o varias fotos:**")
             camera_image = st.camera_input(
                 "Capturar desde la cámara",
                 key="register_camera",
@@ -83,17 +213,20 @@ def page_register():
                 type=["jpg", "jpeg", "png"],
                 key="register_uploader",
             )
+            st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
+            st.markdown('<div class="fg-card">', unsafe_allow_html=True)
+            st.markdown("#### Recomendaciones")
             st.markdown(
                 """
-                **Recomendaciones para el registro:**
-                - Usa 2–5 fotos por persona.
-                - Varía un poco el ángulo (ligero perfil, frontal).
-                - Buena iluminación y rostro visible.
-                - Una carpeta por persona en `faces/`.
+                - Usa entre **2 y 5 fotos** por persona.  
+                - Varía ligeramente el ángulo (frontal, leve perfil).  
+                - Asegura **buena iluminación** y rostro visible.  
+                - Una carpeta por persona en la carpeta `faces/`.  
                 """
             )
+            st.markdown('</div>', unsafe_allow_html=True)
 
     if not person_name:
         st.info("Escribe un nombre para habilitar el guardado.")
@@ -108,31 +241,33 @@ def page_register():
         img_to_use = Image.open(uploaded_image).convert("RGB")
 
     if img_to_use is not None:
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
         st.image(
             img_to_use,
-            caption=f"Previsualización para {person_name}",
+            caption=f"Previsualización – {person_name}",
             use_column_width=True,
         )
 
-        if st.button("💾 Guardar captura en dataset"):
+        if st.button("💾 Guardar imagen en el dataset"):
             path = capture_and_save(person_name, img_to_use)
             st.success(f"Imagen guardada en: `{path}`")
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("Toma una foto o sube una imagen para continuar.")
 
 
 def page_train():
-    st.subheader("🧠 Generar / Actualizar base de embeddings")
-
-    st.write(
-        "Esta acción recorre todas las imágenes en la carpeta `faces/` "
-        "y genera una base de embeddings para el reconocimiento facial usando InsightFace."
+    st.markdown("### 🧠 Generar / actualizar base de embeddings")
+    st.caption(
+        "Este proceso recorre todas las imágenes en la carpeta `faces/` y genera "
+        "la base de embeddings para el reconocimiento facial usando InsightFace."
     )
 
     if not FACES_DIR.exists() or not any(FACES_DIR.iterdir()):
         st.warning("No se encontraron personas en `faces/`. Registra al menos una persona primero.")
         return
 
+    st.markdown('<div class="fg-card">', unsafe_allow_html=True)
     if st.button("⚙️ Construir base de embeddings"):
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -140,24 +275,30 @@ def page_train():
         def progress_callback(done, total):
             pct = int(done / total * 100)
             progress_bar.progress(pct)
-            status_text.text(f"Procesando imágenes... {done}/{total} ({pct} %)")
+            status_text.text(f"Procesando imágenes... {done}/{total} ({pct}%)")
 
         msg = build_embeddings_db(progress_callback=progress_callback)
         status_text.text("")
         progress_bar.progress(100)
         st.success(msg)
+        time.sleep(1)
+        st.experimental_rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def page_recognize():
-    st.subheader("🔍 Probar reconocimiento (foto única)")
+    st.markdown("### 🔍 Prueba de reconocimiento (imagen única)")
+    st.caption(
+        "Toma una foto o sube una imagen para verificar si el sistema detecta "
+        "a una persona previamente registrada como buscada."
+    )
 
-    st.write("Toma una foto o sube una imagen para intentar detectar una **persona buscada**.")
-
-    col1, col2 = st.columns([1, 1])
+    col1, col2 = st.columns([1.1, 1])
 
     with col1:
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
         camera_image = st.camera_input(
-            "Capturar desde cámara",
+            "Capturar desde la cámara",
             key="recognize_camera",
         )
         uploaded_image = st.file_uploader(
@@ -165,6 +306,7 @@ def page_recognize():
             type=["jpg", "jpeg", "png"],
             key="recognize_uploader",
         )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     img_to_use = None
 
@@ -175,14 +317,16 @@ def page_recognize():
         img_to_use = Image.open(uploaded_image).convert("RGB")
 
     with col2:
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
         if img_to_use is not None:
             st.image(img_to_use, caption="Imagen original", use_column_width=True)
         else:
             st.info("Toma una foto o sube una imagen para ver aquí la previsualización.")
-
-    st.write("---")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     if img_to_use is not None:
+        st.markdown("---")
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
         if st.button("▶️ Ejecutar reconocimiento"):
             label, distance, info, annotated = recognize_and_annotate(img_to_use)
 
@@ -194,16 +338,16 @@ def page_recognize():
                 st.success("Resultado: Persona **desconocida** (no está en la base).")
             else:
                 st.error(f"🚨 ALERTA: Persona buscada detectada: **{label}**")
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("Toma una foto o sube una imagen para iniciar el reconocimiento.")
 
 
 def page_live_monitor():
-    st.subheader("🛡 Vigilancia en vivo (panel admin)")
-
-    st.write(
-        "Esta vista permite monitorear la cámara en tiempo casi real y generar "
-        "alertas visuales cuando se detecta una **persona buscada**."
+    st.markdown("### 🛡 Vigilancia en vivo – Panel de monitoreo")
+    st.caption(
+        "Monitorea la cámara en tiempo casi real y genera alertas visuales y sonoras "
+        "cuando se detecta una persona buscada."
     )
 
     embeddings_db, labels_db = load_embeddings_db()
@@ -220,6 +364,7 @@ def page_live_monitor():
     col1, col2 = st.columns([1, 1])
 
     with col1:
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
         source_option = st.selectbox(
             "Origen de la cámara",
             ["Webcam local (0)", "Cámara IP (URL)"],
@@ -233,18 +378,40 @@ def page_live_monitor():
                 "URL del stream de la cámara IP",
                 value=default_url,
                 key="live_ip_url",
-                help="Por ejemplo: http://IP_DEL_CELU:PUERTO/video",
+                help="Ejemplo: http://IP_DEL_CELULAR:PUERTO/video",
             )
 
         duration = st.slider(
             "Duración del monitoreo (segundos)",
             min_value=5,
-            max_value=30,
-            value=10,
+            max_value=60,
+            value=20,
             step=5,
         )
 
+        quality_threshold = st.slider(
+            "Umbral de calidad del rostro (CNN)",
+            min_value=0.0,
+            max_value=1.0,
+            value=QUALITY_THRESHOLD_DEFAULT,
+            step=0.05,
+            help="Rostros con probabilidad menor a este valor se marcarán como baja calidad."
+        )
+
         start_button = st.button("▶ Iniciar monitoreo")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col2:
+        st.markdown('<div class="fg-card">', unsafe_allow_html=True)
+        st.markdown("**Leyenda de colores:**")
+        st.markdown(
+            "- 🟥 **Rojo**: persona buscada detectada (alta confianza).\n"
+            "- 🟨 **Amarillo**: rostro desconocido, pero de buena calidad.\n"
+            "- 🟧 **Naranja**: rostro de **baja calidad**, el sistema muestra coincidencia "
+            "pero advierte que puede haber falso positivo/negativo.\n"
+            "- Todas las alertas confirmadas se registran en `data/alerts.csv`."
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     frame_placeholder = st.empty()
     alert_placeholder = st.empty()
@@ -264,7 +431,8 @@ def page_live_monitor():
         alert_placeholder.info("Monitoreo en curso...")
         end_time = time.time() + duration
         last_alert_time = 0
-        alert_cooldown = 5  # segundos entre alertas registradas
+        alert_cooldown = 5  # segundos entre alertas
+        last_global_alert_text = None
 
         while time.time() < end_time:
             ret, frame = cap.read()
@@ -278,6 +446,17 @@ def page_live_monitor():
             if faces:
                 for face in faces:
                     (x1, y1, x2, y2) = face.bbox.astype(int)
+                    face_crop = frame[y1:y2, x1:x2]
+
+                    # ============ (1) Evaluación de calidad con CNN ============
+                    good, q_prob = is_good_quality(
+                        face_crop,
+                        model=quality_model,
+                        threshold=quality_threshold
+                    )
+                    q_text = f"Q={q_prob:.2f}"
+
+                    # ============ (2) Embedding siempre, pero con interpretación distinta ============
                     embedding = face.embedding.astype("float32")
 
                     best_label = None
@@ -288,9 +467,37 @@ def page_live_monitor():
                             best_distance = dist
                             best_label = label_db
 
+                    # ---------------------------------------------------------
+                    # CASO A: calidad baja -> advertencia (NO alerta oficial)
+                    # ---------------------------------------------------------
+                    if not good:
+                        warning_label = best_label if best_label is not None else "Desconocido"
+                        warning_text = (
+                            f"Baja calidad: posible FP/FN — {warning_label} "
+                            f"(dist: {best_distance:.3f}, {q_text})"
+                        )
+
+                        # Rectángulo naranja
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 140, 255), 2)
+                        cv2.putText(
+                            frame, warning_text, (x1, max(0, y1 - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 2
+                        )
+
+                        # Opcional: registrar solo como estadística, no como alerta oficial
+                        # log_low_quality_detection(q_prob, (x1, y1, x2, y2))
+
+                        # No hay alerta global, solo visual
+                        continue
+
+                    # ---------------------------------------------------------
+                    # CASO B: calidad buena -> proceso de reconocimiento normal
+                    # ---------------------------------------------------------
                     if best_distance <= COSINE_THRESHOLD:
-                        alert_text = f"ALERTA: {best_label} ({best_distance:.3f})"
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        alert_text = f"ALERTA: {best_label} (dist: {best_distance:.3f}, {q_text})"
+                        last_global_alert_text = alert_text
+
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
                         cv2.putText(
                             frame, alert_text, (x1, max(0, y1 - 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2
@@ -302,25 +509,27 @@ def page_live_monitor():
                             last_alert_time = current_time
                             play_alert_sound()
                     else:
+                        # Desconocido de buena calidad
+                        unknown_text = f"Desconocido ({q_text})"
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
                         cv2.putText(
-                            frame, "Desconocido", (x1, max(0, y1 - 10)),
+                            frame, unknown_text, (x1, max(0, y1 - 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
                         )
 
-            # Franja roja arriba si hubo alerta
-            if alert_text:
+            # Banner superior con la última alerta importante (si existe)
+            if last_global_alert_text:
                 cv2.rectangle(frame, (0, 0), (frame.shape[1], 40), (0, 0, 255), -1)
                 cv2.putText(
-                    frame, alert_text, (10, 28),
+                    frame, last_global_alert_text, (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2
                 )
-                alert_placeholder.error(alert_text)
+                alert_placeholder.error(last_global_alert_text)
             else:
                 alert_placeholder.info("Sin alertas por el momento.")
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(frame_rgb, channels="RGB")
+            frame_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
 
             time.sleep(0.03)
 
@@ -328,73 +537,98 @@ def page_live_monitor():
         alert_placeholder.success("Monitoreo finalizado.")
 
 
-def page_alerts():
-    st.subheader("📜 Historial de alertas")
 
-    log_path = Path("data/alerts.csv")
-    if not log_path.exists():
-        st.info("Aún no hay alertas registradas. Ejecuta la vigilancia para generar alertas.")
-        return
-
-    rows = []
-    with open(log_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rows.append(row)
-
-    if not rows:
-        st.info("El archivo de alertas está vacío.")
-        return
-
-    st.write("Alertas registradas (las más recientes al final):")
-    st.dataframe(rows, use_container_width=True)
-
-
-# ---------- MAIN ----------
+# ================== MAIN ==================
 
 def main():
     st.set_page_config(
-        page_title="FaceGuardian",
+        page_title="FaceGuardian – Vigilancia Inteligente",
         page_icon="🛡️",
         layout="wide",
+        initial_sidebar_state="expanded"
     )
 
+    set_custom_style()
     ensure_directories()
 
     # Métricas principales
     num_persons, num_images = get_dataset_summary()
     embeddings_exist = (EMBEDDINGS_DIR / "embeddings.npz").exists()
 
-    st.title("FaceGuardian 🛡️")
-    st.markdown("### Panel de administración y vigilancia facial para personas buscadas")
+    # HEADER
+    col_header, col_status = st.columns([2.5, 1.5])
 
+    with col_header:
+        st.markdown("## 🛡️ FaceGuardian")
+        st.markdown(
+            "Sistema de vigilancia con **reconocimiento facial** para apoyar la detección de "
+            "**personas desaparecidas** en terminales de buses de Bolivia."
+        )
+
+    with col_status:
+        st.markdown('<div class="fg-metric-card">', unsafe_allow_html=True)
+        st.markdown("#### Estado del sistema")
+        if embeddings_exist:
+            st.markdown(
+                '<span class="fg-badge-ok">Embeddings generados</span>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<span class="fg-badge-warn">Embeddings pendientes</span>',
+                unsafe_allow_html=True
+            )
+        st.caption("Modelo: InsightFace (buffalo_l)")
+        st.caption("Métrica: distancia coseno")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # MÉTRICAS EN CARDS
     mcol1, mcol2, mcol3 = st.columns(3)
     with mcol1:
-        st.metric("Personas buscadas registradas", num_persons)
+        st.markdown('<div class="fg-metric-card">', unsafe_allow_html=True)
+        st.caption("Personas registradas")
+        st.markdown(f"### {num_persons}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with mcol2:
-        st.metric("Imágenes en el dataset", num_images)
+        st.markdown('<div class="fg-metric-card">', unsafe_allow_html=True)
+        st.caption("Imágenes en el dataset")
+        st.markdown(f"### {num_images}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with mcol3:
-        st.metric("Embeddings generados", "Sí" if embeddings_exist else "No")
+        st.markdown('<div class="fg-metric-card">', unsafe_allow_html=True)
+        st.caption("Estado de embeddings")
+        st.markdown(f"### {'Disponible' if embeddings_exist else 'No generado'}")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
-    st.sidebar.title("FaceGuardian – Menú")
-    st.sidebar.markdown(
-        """
-        Usa las pestañas de arriba para:
+    # SIDEBAR
+    with st.sidebar:
+        st.markdown("## Menú")
+        st.markdown(
+            """
+            1. **Registrar** personas buscadas.  
+            2. **Generar embeddings** de la base.  
+            3. **Probar reconocimiento** con una imagen.  
+            4. **Vigilar en vivo** por cámara.  
+            5. **Revisar historial** de alertas.  
+            """
+        )
+        st.markdown("---")
+        st.markdown("### Información del sistema")
+        st.markdown(
+            f"- Umbral de distancia: `{COSINE_THRESHOLD}`  \n"
+            f"- Personas registradas: `{num_persons}`  \n"
+            f"- Imágenes en dataset: `{num_images}`  \n"
+        )
 
-        1. **Registrar** personas buscadas.
-        2. **Generar embeddings** de la base.
-        3. **Probar reconocimiento** con una foto.
-        4. **Vigilar en vivo** la cámara.
-        5. **Revisar historial** de alertas.
-        """
-    )
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("Modelo: **InsightFace (buffalo_l)**  \nMétrica: **distancia coseno**")
-
+    # TABS
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "✅ Registrar persona buscada",
+        "✅ Registrar persona",
         "🧠 Generar embeddings",
         "🔍 Probar reconocimiento",
         "🛡 Vigilancia en vivo",
